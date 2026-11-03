@@ -139,6 +139,10 @@ public class OperationRepository {
             w.append(" and o.currency in (:currencies)");
             params.put("currencies", f.currencies());
         }
+        if (f.title() != null && !f.title().isBlank()) {
+            w.append(" and o.title = :title");
+            params.put("title", f.title());
+        }
         if (f.counterpartyUserId() != null) {
             w.append(" and o.counterparty_user_id = :counterparty");
             params.put("counterparty", f.counterpartyUserId());

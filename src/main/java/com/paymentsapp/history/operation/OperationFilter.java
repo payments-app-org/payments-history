@@ -14,6 +14,14 @@ public record OperationFilter(
         List<String> categories,
         List<LoyaltyProgram> loyalty,
         List<String> currencies,
-        UUID counterpartyUserId
+        UUID counterpartyUserId,
+        // Магазин / контрагент — второй уровень «провала» в аналитике
+        String title
 ) {
+
+    public OperationFilter(UUID userId, UUID accountId, OffsetDateTime from, OffsetDateTime to, Direction direction,
+                           List<String> categories, List<LoyaltyProgram> loyalty, List<String> currencies,
+                           UUID counterpartyUserId) {
+        this(userId, accountId, from, to, direction, categories, loyalty, currencies, counterpartyUserId, null);
+    }
 }

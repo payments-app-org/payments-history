@@ -33,6 +33,7 @@ public class HistoryController {
 
     private static final ZoneId ZONE = ZoneId.of("Europe/Moscow");
     private static final int MAX_LIMIT = 100;
+    private static final String OWN_TRANSFER = "OWN_TRANSFER";
 
     private final OperationRepository operations;
 
@@ -52,11 +53,12 @@ public class HistoryController {
             @RequestParam(required = false) List<LoyaltyProgram> loyalty,
             @RequestParam(required = false) List<String> currency,
             @RequestParam(required = false) UUID counterpartyId,
+            @RequestParam(required = false) String title,
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int limit) {
         int size = Math.clamp(limit, 1, MAX_LIMIT);
         OperationFilter filter = new OperationFilter(userId, accountId, startOf(from),
-                to == null ? null : startOf(to.plusDays(1)), direction, category, loyalty, currency, counterpartyId);
+                to == null ? null : startOf(to.plusDays(1)), direction, category, loyalty, currency, counterpartyId, title);
         List<Operation> rows = operations.find(filter, cursor == null ? null : Cursor.decode(cursor), size);
         boolean more = rows.size() > size;
         List<Operation> page = more ? rows.subList(0, size) : rows;
@@ -73,12 +75,16 @@ public class HistoryController {
             @RequestParam(defaultValue = "EXPENSE") Direction direction,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) UUID accountId,
-            @RequestParam(required = false) List<String> currency) {
+            @RequestParam(required = false) List<String> currency,
+            @RequestParam(required = false) String title) {
         YearMonth m = month != null ? month : YearMonth.now(ZONE);
         OperationFilter filter = new OperationFilter(userId, accountId, startOf(m.atDay(1)),
                 startOf(m.plusMonths(1).atDay(1)), direction, category == null ? null : List.of(category), null,
-                currency, null);
-        List<SummaryGroup> groups = operations.summarize(filter, category != null);
+                currency, null, title);
+        // Переводы между своими счетами — не расход и не доход: в общей разбивке их не учитываем
+        List<SummaryGroup> groups = operations.summarize(filter, category != null).stream()
+                .filter(g -> category != null || !OWN_TRANSFER.equals(g.key()))
+                .toList();
         BigDecimal total = groups.stream().map(SummaryGroup::total).reduce(BigDecimal.ZERO, BigDecimal::add);
         long count = groups.stream().mapToLong(SummaryGroup::count).sum();
         return new Summary(m.toString(), direction, category, total, count, groups,

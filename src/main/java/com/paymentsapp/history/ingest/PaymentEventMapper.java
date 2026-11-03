@@ -41,7 +41,8 @@ public final class PaymentEventMapper {
                 text(e, "recipientCardMask"), "Перевод");
         ops.add(new NewOperation(senderId, uuid(e, "sourceAccountId"), at, Direction.EXPENSE, category, recipientTitle,
                 message, total, fee, currency, total, null, null, recipientId, paymentId));
-        if (recipientId != null) {
+        // Деньги, ушедшие на свою карту другого банка, в нашей истории не «приходят» — там только списание
+        if (recipientId != null && !e.path("destinationExternal").asBoolean(false)) {
             String senderTitle = firstNonBlank(text(e, "senderName"), "Перевод");
             ops.add(new NewOperation(recipientId, uuid(e, "recipientAccountId"), at, Direction.INCOME, category,
                     senderTitle, message, amount, BigDecimal.ZERO, currency, amount, null, null, senderId, paymentId));

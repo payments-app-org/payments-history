@@ -1,0 +1,23 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: history
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/payments}
+    username: ${DB_USER:payments}
+    password: ${DB_PASSWORD:payments}
+    # search_path соединения — своя схема (создаётся в infra/postgres/init.sql)
+    hikari:
+      schema: history
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+    default-schema: history
+    liquibase-schema: history
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:29092}
+    consumer:
+      group-id: history
+      # Новая группа читает топик с начала — подтянем и платежи, прошедшие до запуска сервиса
+      auto-offset-reset: earliest

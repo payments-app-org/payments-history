@@ -1,0 +1,65 @@
+package com.paymentsapp.history.ingest;
+
+import com.paymentsapp.history.operation.Direction;
+import com.paymentsapp.history.operation.NewOperation;
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import tools.jackson.databind.JsonNode;
+
+// Успешный платёж → операции в истории: списание у отправителя и, если получатель наш клиент, поступление у него
+public final class PaymentEventMapper {
+
+    private PaymentEventMapper() {
+    }
+
+    public static List<NewOperation> toOperations(JsonNode e) {
+        if (!"PaymentSucceeded".equals(e.path("eventType").asString(""))) {
+            return List.of();
+        }
+        UUID paymentId = uuid(e, "paymentId");
+        String category = "CARD2CARD".equals(e.path("type").asString("")) ? "CARD_TRANSFER" : "SBP_TRANSFER";
+        String currency = e.path("currency").asString("RUB");
+        OffsetDateTime at = OffsetDateTime.parse(e.path(e.hasNonNull("createdAt") ? "createdAt" : "occurredAt").asString());
+        BigDecimal amount = e.path("amount").decimalValue();
+        BigDecimal fee = e.path("commission").decimalValue();
+        BigDecimal total = e.path("total").decimalValue();
+        String message = text(e, "message");
+        UUID senderId = uuid(e, "userId");
+        UUID recipientId = uuid(e, "recipientUserId");
+
+        List<NewOperation> ops = new ArrayList<>();
+        // Отправитель видит получателя: имя, если это наш клиент, иначе телефон или маску карты
+        String recipientTitle = firstNonBlank(text(e, "recipientName"), text(e, "recipientPhone"),
+                text(e, "recipientCardMask"), "Перевод");
+        ops.add(new NewOperation(senderId, uuid(e, "sourceAccountId"), at, Direction.EXPENSE, category, recipientTitle,
+                message, total, fee, currency, total, null, null, recipientId, paymentId));
+        if (recipientId != null) {
+            String senderTitle = firstNonBlank(text(e, "senderName"), "Перевод");
+            ops.add(new NewOperation(recipientId, uuid(e, "recipientAccountId"), at, Direction.INCOME, category,
+                    senderTitle, message, amount, BigDecimal.ZERO, currency, amount, null, null, senderId, paymentId));
+        }
+        return ops;
+    }
+
+    private static String text(JsonNode e, String field) {
+        String value = e.path(field).asString(null);
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static UUID uuid(JsonNode e, String field) {
+        String value = text(e, field);
+        return value == null ? null : UUID.fromString(value);
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return null;
+    }
+}

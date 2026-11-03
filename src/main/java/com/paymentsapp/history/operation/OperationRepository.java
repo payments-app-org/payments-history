@@ -25,9 +25,11 @@ public class OperationRepository {
     public boolean insert(NewOperation op) {
         return jdbc.sql("""
                         insert into operations (id, user_id, account_id, occurred_at, direction, category, title, details,
-                            amount, fee, currency, amount_rub, cashback, loyalty_program, counterparty_user_id, payment_id)
+                            amount, fee, currency, amount_rub, cashback, loyalty_program, counterparty_user_id, payment_id,
+                            mcc, transaction_code)
                         values (:id, :userId, :accountId, :occurredAt, :direction, :category, :title, :details,
-                            :amount, :fee, :currency, :amountRub, :cashback, :loyalty, :counterparty, :paymentId)
+                            :amount, :fee, :currency, :amountRub, :cashback, :loyalty, :counterparty, :paymentId,
+                            (select default_mcc from categories where code = :category), :transactionCode)
                         on conflict (payment_id, user_id, direction) where payment_id is not null do nothing
                         """)
                 .param("id", UUID.randomUUID())
@@ -46,7 +48,26 @@ public class OperationRepository {
                 .param("loyalty", op.loyaltyProgram() == null ? null : op.loyaltyProgram().name())
                 .param("counterparty", op.counterpartyUserId())
                 .param("paymentId", op.paymentId())
+                .param("transactionCode", transactionCode(op.paymentId()))
                 .update() == 1;
+    }
+
+    // Код транзакции платежа — 12 цифр, одинаковый у отправителя и получателя
+    static String transactionCode(UUID paymentId) {
+        long n = paymentId == null ? java.util.concurrent.ThreadLocalRandom.current().nextLong()
+                : paymentId.getMostSignificantBits() ^ paymentId.getLeastSignificantBits();
+        return String.format("%012d", Math.floorMod(n, 1_000_000_000_000L));
+    }
+
+    public java.util.Optional<Operation> findById(UUID userId, UUID id) {
+        return jdbc.sql("""
+                        select o.*, c.name as category_name from operations o join categories c on c.code = o.category
+                        where o.user_id = :userId and o.id = :id
+                        """)
+                .param("userId", userId)
+                .param("id", id)
+                .query(OperationRepository::mapOperation)
+                .optional();
     }
 
     // Страница ленты: limit + 1 строк, чтобы понять, есть ли продолжение
@@ -141,7 +162,10 @@ public class OperationRepository {
                 rs.getString("currency"),
                 rs.getBigDecimal("cashback"),
                 loyalty == null ? null : LoyaltyProgram.valueOf(loyalty),
-                rs.getObject("counterparty_user_id", UUID.class));
+                rs.getObject("counterparty_user_id", UUID.class),
+                rs.getString("mcc"),
+                rs.getBigDecimal("discount"),
+                rs.getString("transaction_code"));
     }
 
     public record SummaryGroup(String key, String name, BigDecimal total, long count) {

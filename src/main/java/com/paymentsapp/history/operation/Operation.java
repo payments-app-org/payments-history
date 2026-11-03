@@ -18,6 +18,9 @@ public record Operation(
         String currency,
         BigDecimal cashback,
         LoyaltyProgram loyaltyProgram,
-        UUID counterpartyUserId
+        UUID counterpartyUserId,
+        String mcc,
+        BigDecimal discount,
+        String transactionCode
 ) {
 }

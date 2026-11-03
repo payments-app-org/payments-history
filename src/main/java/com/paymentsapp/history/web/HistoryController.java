@@ -20,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -82,6 +83,13 @@ public class HistoryController {
         long count = groups.stream().mapToLong(SummaryGroup::count).sum();
         return new Summary(m.toString(), direction, category, total, count, groups,
                 m.minusMonths(1).toString(), m.plusMonths(1).toString());
+    }
+
+    // Карточка операции: детали и данные для чека
+    @GetMapping("/operations/{id}")
+    public Operation operation(@RequestHeader("X-User-Id") UUID userId, @PathVariable UUID id) {
+        return operations.findById(userId, id)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Операция не найдена"));
     }
 
     @GetMapping("/categories")

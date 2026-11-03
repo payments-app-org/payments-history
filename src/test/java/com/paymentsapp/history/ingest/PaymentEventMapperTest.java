@@ -58,6 +58,24 @@ class PaymentEventMapperTest {
     }
 
     @Test
+    void ownTransferGivesTwoOperationsForTheSameUser() {
+        List<NewOperation> ops = map("""
+                {"eventType":"PaymentSucceeded","paymentId":"44444444-4444-4444-4444-444444444444","type":"OWN_TRANSFER",
+                 "userId":"00000000-0000-0000-0000-000000000001","sourceAccountId":"00000000-0000-0000-0000-00000000a002",
+                 "senderName":"С Зарплатная WEEKEND ·· 3752","recipientUserId":"00000000-0000-0000-0000-000000000001",
+                 "recipientAccountId":"00000000-0000-0000-0000-00000000a001","recipientName":"На Мой кошелёк",
+                 "amount":1000,"commission":10,"total":1010,"currency":"RUB","createdAt":"2026-11-03T10:00:00Z"}
+                """);
+
+        assertThat(ops).hasSize(2);
+        assertThat(ops).allMatch(op -> op.category().equals("OWN_TRANSFER"));
+        assertThat(ops.get(0).title()).isEqualTo("На Мой кошелёк");
+        assertThat(ops.get(0).amount()).isEqualByComparingTo("1010");
+        assertThat(ops.get(1).title()).isEqualTo("С Зарплатная WEEKEND ·· 3752");
+        assertThat(ops.get(1).userId()).isEqualTo(ops.get(0).userId());
+    }
+
+    @Test
     void failedPaymentIsNotHistory() {
         assertThat(map("""
                 {"eventType":"PaymentFailed","paymentId":"33333333-3333-3333-3333-333333333333"}

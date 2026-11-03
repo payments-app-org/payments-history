@@ -21,14 +21,14 @@ public class OperationRepository {
         this.jdbc = jdbc;
     }
 
-    // Повтор события из Kafka (тот же платёж и пользователь) молча пропускается
+    // Повтор события из Kafka (тот же платёж, пользователь и направление) молча пропускается
     public boolean insert(NewOperation op) {
         return jdbc.sql("""
                         insert into operations (id, user_id, account_id, occurred_at, direction, category, title, details,
                             amount, fee, currency, amount_rub, cashback, loyalty_program, counterparty_user_id, payment_id)
                         values (:id, :userId, :accountId, :occurredAt, :direction, :category, :title, :details,
                             :amount, :fee, :currency, :amountRub, :cashback, :loyalty, :counterparty, :paymentId)
-                        on conflict (payment_id, user_id) where payment_id is not null do nothing
+                        on conflict (payment_id, user_id, direction) where payment_id is not null do nothing
                         """)
                 .param("id", UUID.randomUUID())
                 .param("userId", op.userId())

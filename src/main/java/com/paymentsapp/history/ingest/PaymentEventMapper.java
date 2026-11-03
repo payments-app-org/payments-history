@@ -9,7 +9,8 @@ import java.util.List;
 import java.util.UUID;
 import tools.jackson.databind.JsonNode;
 
-// Успешный платёж → операции в истории: списание у отправителя и, если получатель наш клиент, поступление у него
+// Успешный платёж → операции в истории: списание у отправителя и, если получатель наш клиент, поступление у него.
+// Между своими счетами обе операции у одного пользователя: «На Мой кошелёк» и «С Зарплатная ·· 3752».
 public final class PaymentEventMapper {
 
     private PaymentEventMapper() {
@@ -20,7 +21,11 @@ public final class PaymentEventMapper {
             return List.of();
         }
         UUID paymentId = uuid(e, "paymentId");
-        String category = "CARD2CARD".equals(e.path("type").asString("")) ? "CARD_TRANSFER" : "SBP_TRANSFER";
+        String category = switch (e.path("type").asString("")) {
+            case "CARD2CARD" -> "CARD_TRANSFER";
+            case "OWN_TRANSFER" -> "OWN_TRANSFER";
+            default -> "SBP_TRANSFER";
+        };
         String currency = e.path("currency").asString("RUB");
         OffsetDateTime at = OffsetDateTime.parse(e.path(e.hasNonNull("createdAt") ? "createdAt" : "occurredAt").asString());
         BigDecimal amount = e.path("amount").decimalValue();

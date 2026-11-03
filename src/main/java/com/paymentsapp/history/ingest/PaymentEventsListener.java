@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
-// Читает итоги платежей из Kafka. Доставка «хотя бы один раз» — дубли отсекает уникальный индекс (payment_id, user_id).
+// Читает итоги платежей из Kafka. Доставка «хотя бы один раз» — дубли отсекает уникальный индекс (payment_id, user_id, direction).
 @Component
 public class PaymentEventsListener {
 

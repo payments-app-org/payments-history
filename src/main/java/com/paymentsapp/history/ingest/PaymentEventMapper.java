@@ -24,6 +24,7 @@ public final class PaymentEventMapper {
         String category = switch (e.path("type").asString("")) {
             case "CARD2CARD" -> "CARD_TRANSFER";
             case "OWN_TRANSFER" -> "OWN_TRANSFER";
+            case "ABROAD" -> "ABROAD_TRANSFER";
             default -> "SBP_TRANSFER";
         };
         String currency = e.path("currency").asString("RUB");
@@ -32,6 +33,11 @@ public final class PaymentEventMapper {
         BigDecimal fee = e.path("commission").decimalValue();
         BigDecimal total = e.path("total").decimalValue();
         String message = text(e, "message");
+        // За рубеж: в пометке — сколько и как получит получатель («1,75 USD · ARARAT BANK»)
+        if ("ABROAD_TRANSFER".equals(category) && e.hasNonNull("receiveAmount")) {
+            message = e.path("receiveAmount").decimalValue().stripTrailingZeros().toPlainString().replace('.', ',')
+                    + " " + text(e, "receiveCurrency") + " · " + text(e, "transferMethodName");
+        }
         UUID senderId = uuid(e, "userId");
         UUID recipientId = uuid(e, "recipientUserId");
 

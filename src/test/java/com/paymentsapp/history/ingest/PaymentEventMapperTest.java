@@ -76,6 +76,22 @@ class PaymentEventMapperTest {
     }
 
     @Test
+    void abroadTransferShowsReceiveAmountAndMethod() {
+        List<NewOperation> ops = map("""
+                {"eventType":"PaymentSucceeded","paymentId":"55555555-5555-5555-5555-555555555555","type":"ABROAD",
+                 "userId":"00000000-0000-0000-0000-000000000001","sourceAccountId":"00000000-0000-0000-0000-00000000a002",
+                 "recipientName":"ARAM PETROSYAN","amount":150,"commission":0,"total":150,"currency":"RUB",
+                 "receiveCurrency":"USD","receiveAmount":1.75,"transferMethodName":"ARARAT BANK",
+                 "createdAt":"2026-11-03T10:00:00Z"}
+                """);
+
+        assertThat(ops).hasSize(1);
+        assertThat(ops.get(0).category()).isEqualTo("ABROAD_TRANSFER");
+        assertThat(ops.get(0).title()).isEqualTo("ARAM PETROSYAN");
+        assertThat(ops.get(0).details()).isEqualTo("1,75 USD · ARARAT BANK");
+    }
+
+    @Test
     void failedPaymentIsNotHistory() {
         assertThat(map("""
                 {"eventType":"PaymentFailed","paymentId":"33333333-3333-3333-3333-333333333333"}

@@ -27,8 +27,14 @@ public final class PaymentEventMapper {
             case "ABROAD" -> "ABROAD_TRANSFER";
             case "WALLET_TRANSFER" -> "WALLET_TRANSFER";
             case "REQUISITES", "REQUISITES_OUR" -> "REQUISITES";
-            case "UIN_PAYMENT" -> "GOV";
-            case "MOBILE_PAYMENT" -> "MOBILE";
+            // Оплата поставщику: категория — по группе поставщика
+            case "BILL" -> switch (e.path("providerGroup").asString("")) {
+                case "MOBILE", "FOREIGN_MOBILE" -> "MOBILE";
+                case "GOV" -> "GOV";
+                case "TRANSPORT" -> "TRANSPORT";
+                case "GAMES" -> "GAMES";
+                default -> "OTHER";
+            };
             default -> "SBP_TRANSFER";
         };
         String currency = e.path("currency").asString("RUB");

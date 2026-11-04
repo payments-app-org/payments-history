@@ -33,6 +33,11 @@ public final class PaymentEventMapper {
                 case "GOV" -> "GOV";
                 case "TRANSPORT" -> "TRANSPORT";
                 case "GAMES" -> "GAMES";
+                case "EMONEY" -> "EMONEY";
+                case "EDUCATION" -> "EDUCATION";
+                case "SHOPS" -> "MARKETPLACES";
+                case "TRAVEL" -> "TRAVEL";
+                case "INSURANCE" -> "INSURANCE";
                 default -> "OTHER";
             };
             default -> "SBP_TRANSFER";

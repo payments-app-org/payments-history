@@ -69,8 +69,16 @@ public final class PaymentEventMapper {
         // Отправитель видит получателя: имя, если это наш клиент, иначе телефон или маску карты
         String recipientTitle = firstNonBlank(text(e, "recipientName"), text(e, "recipientPhone"),
                 text(e, "recipientCardMask"), "Перевод");
+        // «Округление на пользу» — отдельной операцией: покупка без него, разница — в фонд
+        BigDecimal roundUp = e.hasNonNull("roundUpAmount") ? e.path("roundUpAmount").decimalValue() : BigDecimal.ZERO;
+        BigDecimal purchase = total.subtract(roundUp);
         ops.add(new NewOperation(senderId, uuid(e, "sourceAccountId"), at, Direction.EXPENSE, category, recipientTitle,
-                message, total, fee, currency, total, null, null, recipientId, paymentId));
+                message, purchase, fee, currency, purchase, null, null, recipientId, paymentId));
+        if (roundUp.signum() > 0) {
+            ops.add(new NewOperation(senderId, uuid(e, "sourceAccountId"), at, Direction.EXPENSE, "DONATIONS",
+                    firstNonBlank(text(e, "roundUpFundName"), "Округление на пользу"), "Округление на пользу · " + recipientTitle,
+                    roundUp, BigDecimal.ZERO, currency, roundUp, null, null, null, paymentId));
+        }
         // Деньги, ушедшие на свою карту другого банка, в нашей истории не «приходят» — там только списание
         if (recipientId != null && !e.path("destinationExternal").asBoolean(false)) {
             String senderTitle = firstNonBlank(text(e, "senderName"), "Перевод");

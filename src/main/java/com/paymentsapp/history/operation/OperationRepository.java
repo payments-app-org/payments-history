@@ -30,7 +30,7 @@ public class OperationRepository {
                         values (:id, :userId, :accountId, :occurredAt, :direction, :category, :title, :details,
                             :amount, :fee, :currency, :amountRub, :cashback, :loyalty, :counterparty, :paymentId,
                             (select default_mcc from categories where code = :category), :transactionCode)
-                        on conflict (payment_id, user_id, direction) where payment_id is not null do nothing
+                        on conflict (payment_id, user_id, direction, category) where payment_id is not null do nothing
                         """)
                 .param("id", UUID.randomUUID())
                 .param("userId", op.userId())

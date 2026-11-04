@@ -28,6 +28,7 @@ public final class PaymentEventMapper {
             case "WALLET_TRANSFER" -> "WALLET_TRANSFER";
             case "REQUISITES", "REQUISITES_OUR" -> "REQUISITES";
             case "UIN_PAYMENT" -> "GOV";
+            case "MOBILE_PAYMENT" -> "MOBILE";
             default -> "SBP_TRANSFER";
         };
         String currency = e.path("currency").asString("RUB");

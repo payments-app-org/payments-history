@@ -19,7 +19,9 @@ final class PaymentCategories {
         WALLET_TRANSFER(CategoryCode.WALLET_TRANSFER),
         REQUISITES(CategoryCode.REQUISITES),
         REQUISITES_OUR(CategoryCode.REQUISITES),
-        BILL(null);
+        BILL(null),
+        // Входящий перевод по СБП из другого банка — та же категория, что у переводов по СБП
+        INCOMING_SBP(CategoryCode.SBP_TRANSFER);
 
         private final CategoryCode category;
 
@@ -50,6 +52,10 @@ final class PaymentCategories {
         ProviderGroup(CategoryCode category) {
             this.category = category;
         }
+    }
+
+    static boolean isIncoming(String paymentType) {
+        return PaymentType.INCOMING_SBP.name().equals(paymentType);
     }
 
     static CategoryCode of(String paymentType, String providerGroup) {

@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 // Успешный платёж → операции в истории: списание у отправителя и, если получатель наш клиент, поступление у него.
 // Событие несёт данные (имена, названия счетов, суммы), тексты для ленты собирает history.
 // Между своими счетами обе операции у одного пользователя: «На Мой кошелёк» и «С Зарплатная ·· 3752».
+// Входящий СБП из другого банка — только поступление у получателя.
 @Component
 public class PaymentEventMapper {
 
@@ -33,6 +34,12 @@ public class PaymentEventMapper {
             return List.of();
         }
         CategoryCode category = PaymentCategories.of(e.type(), e.providerGroup());
+        if (PaymentCategories.isIncoming(e.type())) {
+            // Входящий из другого банка: у нас только поступление получателю, отправитель — клиент другого банка
+            return List.of(new NewOperation(e.userId(), e.recipientAccountId(), e.at(), Direction.INCOME, category.name(),
+                    firstNonBlank(e.senderName(), OperationText.TRANSFER.text()), blankToNull(e.message()), e.amount(),
+                    BigDecimal.ZERO, e.currencyOrDefault(), e.amount(), null, null, null, e.paymentId()));
+        }
         boolean own = category == CategoryCode.OWN_TRANSFER;
         String currency = e.currencyOrDefault();
         String details = details(e, category);

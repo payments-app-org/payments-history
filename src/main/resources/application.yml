@@ -27,6 +27,12 @@ spring:
 
 # Общая библиотека libs/platform
 platform:
+  # Сообщения, не обработанные после повторов, — в DLT своей группы (payment.events.<группа>-dlt); разбор:
+  # GET /api/internal/dlt/payment.events (сколько ждёт), POST /api/internal/dlt/payment.events/replay (отправить снова)
+  kafka:
+    dead-letter:
+      topics: [payment.events]
+      groups: [history]
   # Swagger: описание API и коды ошибок в схеме Problem
   openapi:
     description: "История операций и аналитика"

@@ -12,6 +12,8 @@ import com.paymentsapp.history.operation.OperationRepository;
 import com.paymentsapp.history.operation.OperationRepository.Category;
 import com.paymentsapp.history.operation.OperationRepository.SummaryGroup;
 import com.paymentsapp.platform.error.DomainException;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -58,9 +60,9 @@ public class HistoryController {
             @RequestParam(required = false) List<LoyaltyProgram> loyalty,
             @RequestParam(required = false) List<String> currency,
             @RequestParam(required = false) UUID counterpartyId,
-            @RequestParam(required = false) String title,
-            @RequestParam(required = false) String cursor,
-            @RequestParam(required = false) Integer limit) {
+            @RequestParam(required = false) @Size(max = 100) String title,
+            @RequestParam(required = false) @Size(max = 200) String cursor,
+            @RequestParam(required = false) @Positive Integer limit) {
         int size = Math.clamp(limit != null ? limit : props.page().defaultSize(), MIN_PAGE, props.page().maxSize());
         OperationFilter filter = new OperationFilter(userId, accountId, startOf(from),
                 to == null ? null : startOf(to.plusDays(1)), direction, category, loyalty, currency, counterpartyId, title);
@@ -81,7 +83,7 @@ public class HistoryController {
             @RequestParam(required = false) String category,
             @RequestParam(required = false) UUID accountId,
             @RequestParam(required = false) List<String> currency,
-            @RequestParam(required = false) String title) {
+            @RequestParam(required = false) @Size(max = 100) String title) {
         YearMonth m = month != null ? month : YearMonth.now(clock);
         OperationFilter filter = new OperationFilter(userId, accountId, startOf(m.atDay(1)),
                 startOf(m.plusMonths(1).atDay(1)), direction, category == null ? null : List.of(category), null,

@@ -1,5 +1,8 @@
 package com.paymentsapp.history.web;
 
+import com.paymentsapp.history.config.HistoryProperties;
+import com.paymentsapp.history.error.HistoryError;
+import com.paymentsapp.history.operation.CategoryCode;
 import com.paymentsapp.history.operation.Cursor;
 import com.paymentsapp.history.operation.Direction;
 import com.paymentsapp.history.operation.LoyaltyProgram;
@@ -8,6 +11,7 @@ import com.paymentsapp.history.operation.OperationFilter;
 import com.paymentsapp.history.operation.OperationRepository;
 import com.paymentsapp.history.operation.OperationRepository.Category;
 import com.paymentsapp.history.operation.OperationRepository.SummaryGroup;
+import com.paymentsapp.platform.error.DomainException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -16,9 +20,6 @@ import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -31,22 +32,24 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/history")
 public class HistoryController {
 
-    private static final int MAX_LIMIT = 100;
-    private static final String OWN_TRANSFER = "OWN_TRANSFER";
+    private static final String USER_HEADER = "X-User-Id";
+    private static final int MIN_PAGE = 1;
 
     private final OperationRepository operations;
+    private final HistoryProperties props;
     // Дни и месяцы — по часовому поясу бизнеса (platform.time.zone)
     private final Clock clock;
 
-    public HistoryController(OperationRepository operations, Clock clock) {
+    public HistoryController(OperationRepository operations, HistoryProperties props, Clock clock) {
         this.operations = operations;
+        this.props = props;
         this.clock = clock;
     }
 
     // Лента истории с фильтрами и пагинацией по курсору: следующая страница — ?cursor=<nextCursor>
     @GetMapping("/operations")
     public OperationsPage operations(
-            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(USER_HEADER) UUID userId,
             @RequestParam(required = false) UUID accountId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -57,8 +60,8 @@ public class HistoryController {
             @RequestParam(required = false) UUID counterpartyId,
             @RequestParam(required = false) String title,
             @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "20") int limit) {
-        int size = Math.clamp(limit, 1, MAX_LIMIT);
+            @RequestParam(required = false) Integer limit) {
+        int size = Math.clamp(limit != null ? limit : props.page().defaultSize(), MIN_PAGE, props.page().maxSize());
         OperationFilter filter = new OperationFilter(userId, accountId, startOf(from),
                 to == null ? null : startOf(to.plusDays(1)), direction, category, loyalty, currency, counterpartyId, title);
         List<Operation> rows = operations.find(filter, cursor == null ? null : Cursor.decode(cursor), size);
@@ -72,7 +75,7 @@ public class HistoryController {
     // С category — разбивка внутри категории по магазинам/контрагентам. Сами операции — через /operations с теми же фильтрами.
     @GetMapping("/summary")
     public Summary summary(
-            @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader(USER_HEADER) UUID userId,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM") YearMonth month,
             @RequestParam(defaultValue = "EXPENSE") Direction direction,
             @RequestParam(required = false) String category,
@@ -85,7 +88,7 @@ public class HistoryController {
                 currency, null, title);
         // Переводы между своими счетами — не расход и не доход: в общей разбивке их не учитываем
         List<SummaryGroup> groups = operations.summarize(filter, category != null).stream()
-                .filter(g -> category != null || !OWN_TRANSFER.equals(g.key()))
+                .filter(g -> category != null || !CategoryCode.OWN_TRANSFER.name().equals(g.key()))
                 .toList();
         BigDecimal total = groups.stream().map(SummaryGroup::total).reduce(BigDecimal.ZERO, BigDecimal::add);
         long count = groups.stream().mapToLong(SummaryGroup::count).sum();
@@ -95,19 +98,14 @@ public class HistoryController {
 
     // Карточка операции: детали и данные для чека
     @GetMapping("/operations/{id}")
-    public Operation operation(@RequestHeader("X-User-Id") UUID userId, @PathVariable UUID id) {
+    public Operation operation(@RequestHeader(USER_HEADER) UUID userId, @PathVariable UUID id) {
         return operations.findById(userId, id)
-                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "Операция не найдена"));
+                .orElseThrow(() -> new DomainException(HistoryError.OPERATION_NOT_FOUND));
     }
 
     @GetMapping("/categories")
     public List<Category> categories() {
         return operations.categories();
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)
-    ProblemDetail badRequest(IllegalArgumentException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
     }
 
     private OffsetDateTime startOf(LocalDate day) {

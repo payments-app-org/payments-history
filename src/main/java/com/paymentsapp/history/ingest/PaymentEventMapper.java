@@ -1,101 +1,94 @@
 package com.paymentsapp.history.ingest;
 
+import com.paymentsapp.history.config.HistoryProperties;
+import com.paymentsapp.history.operation.CategoryCode;
 import com.paymentsapp.history.operation.Direction;
 import com.paymentsapp.history.operation.NewOperation;
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
-import tools.jackson.databind.JsonNode;
+import org.springframework.stereotype.Component;
 
 // Успешный платёж → операции в истории: списание у отправителя и, если получатель наш клиент, поступление у него.
+// Событие несёт данные (имена, названия счетов, суммы), тексты для ленты собирает history.
 // Между своими счетами обе операции у одного пользователя: «На Мой кошелёк» и «С Зарплатная ·· 3752».
-public final class PaymentEventMapper {
+@Component
+public class PaymentEventMapper {
 
-    private PaymentEventMapper() {
+    private static final String ELLIPSIS = "…";
+    private static final Locale RU = Locale.of("ru");
+
+    private final HistoryProperties props;
+
+    public PaymentEventMapper(HistoryProperties props) {
+        this.props = props;
     }
 
-    public static List<NewOperation> toOperations(JsonNode e) {
-        if (!"PaymentSucceeded".equals(e.path("eventType").asString(""))) {
+    public List<NewOperation> toOperations(PaymentEvent e) {
+        if (!e.succeeded()) {
             return List.of();
         }
-        UUID paymentId = uuid(e, "paymentId");
-        String category = switch (e.path("type").asString("")) {
-            case "CARD2CARD" -> "CARD_TRANSFER";
-            case "OWN_TRANSFER" -> "OWN_TRANSFER";
-            case "ABROAD" -> "ABROAD_TRANSFER";
-            case "WALLET_TRANSFER" -> "WALLET_TRANSFER";
-            case "REQUISITES", "REQUISITES_OUR" -> "REQUISITES";
-            // Оплата поставщику: категория — по группе поставщика
-            case "BILL" -> switch (e.path("providerGroup").asString("")) {
-                case "MOBILE", "FOREIGN_MOBILE" -> "MOBILE";
-                case "GOV" -> "GOV";
-                case "TRANSPORT" -> "TRANSPORT";
-                case "GAMES" -> "GAMES";
-                case "EMONEY" -> "EMONEY";
-                case "EDUCATION" -> "EDUCATION";
-                case "SHOPS" -> "MARKETPLACES";
-                case "TRAVEL" -> "TRAVEL";
-                case "INSURANCE" -> "INSURANCE";
-                case "SECURITY" -> "SECURITY";
-                case "DONATIONS" -> "DONATIONS";
-                case "UTILITIES" -> "UTILITIES";
-                case "INTERNET" -> "INTERNET";
-                default -> "OTHER";
-            };
-            default -> "SBP_TRANSFER";
-        };
-        String currency = e.path("currency").asString("RUB");
-        OffsetDateTime at = OffsetDateTime.parse(e.path(e.hasNonNull("createdAt") ? "createdAt" : "occurredAt").asString());
-        BigDecimal amount = e.path("amount").decimalValue();
-        BigDecimal fee = e.path("commission").decimalValue();
-        BigDecimal total = e.path("total").decimalValue();
-        String message = text(e, "message");
-        // Юрлицу и в бюджет — в пометке назначение платежа
-        String purpose = text(e, "purpose");
-        if (message == null && purpose != null) {
-            message = purpose.length() > 100 ? purpose.substring(0, 97) + "…" : purpose;
-        }
-        // За рубеж: в пометке — сколько и как получит получатель («1,75 USD · ARARAT BANK»)
-        if ("ABROAD_TRANSFER".equals(category) && e.hasNonNull("receiveAmount")) {
-            message = e.path("receiveAmount").decimalValue().stripTrailingZeros().toPlainString().replace('.', ',')
-                    + " " + text(e, "receiveCurrency") + " · " + text(e, "transferMethodName");
-        }
-        UUID senderId = uuid(e, "userId");
-        UUID recipientId = uuid(e, "recipientUserId");
+        CategoryCode category = PaymentCategories.of(e.type(), e.providerGroup());
+        boolean own = category == CategoryCode.OWN_TRANSFER;
+        String currency = e.currencyOrDefault();
+        String details = details(e, category);
+
+        // Отправитель видит получателя: имя, если это наш клиент, иначе телефон или маску карты
+        String recipientTitle = own ? OperationText.TO_OWN.format(orElse(e.recipientName(), OperationText.OWN_DESTINATION))
+                : firstNonBlank(e.recipientName(), e.recipientPhone(), e.recipientCardMask(), OperationText.TRANSFER.text());
+        // «Округление на пользу» — отдельной операцией: покупка без него, разница — в фонд
+        BigDecimal roundUp = e.roundUp();
+        BigDecimal purchase = e.total().subtract(roundUp);
 
         List<NewOperation> ops = new ArrayList<>();
-        // Отправитель видит получателя: имя, если это наш клиент, иначе телефон или маску карты
-        String recipientTitle = firstNonBlank(text(e, "recipientName"), text(e, "recipientPhone"),
-                text(e, "recipientCardMask"), "Перевод");
-        // «Округление на пользу» — отдельной операцией: покупка без него, разница — в фонд
-        BigDecimal roundUp = e.hasNonNull("roundUpAmount") ? e.path("roundUpAmount").decimalValue() : BigDecimal.ZERO;
-        BigDecimal purchase = total.subtract(roundUp);
-        ops.add(new NewOperation(senderId, uuid(e, "sourceAccountId"), at, Direction.EXPENSE, category, recipientTitle,
-                message, purchase, fee, currency, purchase, null, null, recipientId, paymentId));
+        ops.add(new NewOperation(e.userId(), e.sourceAccountId(), e.at(), Direction.EXPENSE, category.name(), recipientTitle,
+                details, purchase, e.commission(), currency, purchase, null, null, e.recipientUserId(), e.paymentId()));
         if (roundUp.signum() > 0) {
-            ops.add(new NewOperation(senderId, uuid(e, "sourceAccountId"), at, Direction.EXPENSE, "DONATIONS",
-                    firstNonBlank(text(e, "roundUpFundName"), "Округление на пользу"), "Округление на пользу · " + recipientTitle,
-                    roundUp, BigDecimal.ZERO, currency, roundUp, null, null, null, paymentId));
+            ops.add(new NewOperation(e.userId(), e.sourceAccountId(), e.at(), Direction.EXPENSE, CategoryCode.DONATIONS.name(),
+                    firstNonBlank(e.roundUpFundName(), OperationText.ROUND_UP.text()),
+                    OperationText.ROUND_UP_DETAILS.format(recipientTitle), roundUp, BigDecimal.ZERO, currency, roundUp,
+                    null, null, null, e.paymentId()));
         }
         // Деньги, ушедшие на свою карту другого банка, в нашей истории не «приходят» — там только списание
-        if (recipientId != null && !e.path("destinationExternal").asBoolean(false)) {
-            String senderTitle = firstNonBlank(text(e, "senderName"), "Перевод");
-            ops.add(new NewOperation(recipientId, uuid(e, "recipientAccountId"), at, Direction.INCOME, category,
-                    senderTitle, message, amount, BigDecimal.ZERO, currency, amount, null, null, senderId, paymentId));
+        if (e.recipientUserId() != null && !e.toExternalAccount()) {
+            String senderTitle = own ? OperationText.FROM_OWN.format(orElse(e.senderName(), OperationText.OWN_SOURCE))
+                    : firstNonBlank(e.senderName(), OperationText.TRANSFER.text());
+            ops.add(new NewOperation(e.recipientUserId(), e.recipientAccountId(), e.at(), Direction.INCOME, category.name(),
+                    senderTitle, details, e.amount(), BigDecimal.ZERO, currency, e.amount(), null, null, e.userId(),
+                    e.paymentId()));
         }
         return ops;
     }
 
-    private static String text(JsonNode e, String field) {
-        String value = e.path(field).asString(null);
-        return value == null || value.isBlank() ? null : value;
+    // Пометка: сообщение получателю; юрлицу и в бюджет — назначение платежа; за рубеж — сколько и как получит получатель
+    private String details(PaymentEvent e, CategoryCode category) {
+        if (category == CategoryCode.ABROAD_TRANSFER && e.receiveAmount() != null) {
+            return OperationText.ABROAD_DETAILS.format(amount(e.receiveAmount()), e.receiveCurrency(), e.transferMethodName());
+        }
+        String message = blankToNull(e.message());
+        String purpose = blankToNull(e.purpose());
+        if (message == null && purpose != null) {
+            return purpose.length() > props.detailsMax() ? purpose.substring(0, props.detailsMax() - 1) + ELLIPSIS : purpose;
+        }
+        return message;
     }
 
-    private static UUID uuid(JsonNode e, String field) {
-        String value = text(e, field);
-        return value == null ? null : UUID.fromString(value);
+    // «1,75» — без лишних нулей, запятая
+    private static String amount(BigDecimal value) {
+        DecimalFormat format = new DecimalFormat("0.##", DecimalFormatSymbols.getInstance(RU));
+        return format.format(value);
+    }
+
+    private static String orElse(String value, OperationText fallback) {
+        return firstNonBlank(value, fallback.text());
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static String firstNonBlank(String... values) {

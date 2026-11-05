@@ -10,23 +10,26 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 
 // Читает итоги платежей из Kafka. Доставка «хотя бы один раз» — дубли отсекает уникальный индекс (payment_id, user_id, direction).
+// Нечитаемое сообщение после повторов уходит в DLT (libs/platform).
 @Component
 public class PaymentEventsListener {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentEventsListener.class);
 
     private final OperationRepository operations;
+    private final PaymentEventMapper mapper;
     private final JsonMapper json;
 
-    public PaymentEventsListener(OperationRepository operations, JsonMapper json) {
+    public PaymentEventsListener(OperationRepository operations, PaymentEventMapper mapper, JsonMapper json) {
         this.operations = operations;
+        this.mapper = mapper;
         this.json = json;
     }
 
     @KafkaListener(topics = "${messaging.payment-events.topic}")
     @Transactional
     public void onPaymentEvent(String message) {
-        for (NewOperation op : PaymentEventMapper.toOperations(json.readTree(message))) {
+        for (NewOperation op : mapper.toOperations(json.readValue(message, PaymentEvent.class))) {
             if (operations.insert(op)) {
                 log.info("payment {}: операция {} для пользователя {}", op.paymentId(), op.direction(), op.userId());
             }

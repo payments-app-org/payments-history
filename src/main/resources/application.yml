@@ -33,3 +33,11 @@ platform:
 messaging:
   payment-events:
     topic: payment.events
+
+history:
+  # Длина пометки операции — по колонке operations.details (длинное назначение платежа обрезаем с «…»)
+  details-max: 100
+  # Лента: сколько операций на странице по умолчанию и не больше скольких
+  page:
+    default-size: 20
+    max-size: 100

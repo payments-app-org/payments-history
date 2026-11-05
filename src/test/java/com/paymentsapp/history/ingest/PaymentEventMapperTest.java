@@ -2,6 +2,7 @@ package com.paymentsapp.history.ingest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.paymentsapp.history.config.HistoryProperties;
 import com.paymentsapp.history.operation.Direction;
 import com.paymentsapp.history.operation.NewOperation;
 import java.util.List;
@@ -10,10 +11,15 @@ import tools.jackson.databind.json.JsonMapper;
 
 class PaymentEventMapperTest {
 
-    private final JsonMapper json = JsonMapper.builder().build();
+    private static final int DETAILS_MAX = 100;
 
+    private final JsonMapper json = JsonMapper.builder().build();
+    private final PaymentEventMapper mapper = new PaymentEventMapper(
+            new HistoryProperties(DETAILS_MAX, new HistoryProperties.Page(20, 100)));
+
+    // Событие разбираем так же, как слушатель Kafka: проверяем и контракт с payment
     private List<NewOperation> map(String event) {
-        return PaymentEventMapper.toOperations(json.readTree(event));
+        return mapper.toOperations(json.readValue(event, PaymentEvent.class));
     }
 
     @Test
@@ -62,8 +68,8 @@ class PaymentEventMapperTest {
         List<NewOperation> ops = map("""
                 {"eventType":"PaymentSucceeded","paymentId":"44444444-4444-4444-4444-444444444444","type":"OWN_TRANSFER",
                  "userId":"00000000-0000-0000-0000-000000000001","sourceAccountId":"00000000-0000-0000-0000-00000000a002",
-                 "senderName":"С Зарплатная WEEKEND ·· 3752","recipientUserId":"00000000-0000-0000-0000-000000000001",
-                 "recipientAccountId":"00000000-0000-0000-0000-00000000a001","recipientName":"На Мой кошелёк",
+                 "senderName":"Зарплатная WEEKEND ·· 3752","recipientUserId":"00000000-0000-0000-0000-000000000001",
+                 "recipientAccountId":"00000000-0000-0000-0000-00000000a001","recipientName":"Мой кошелёк",
                  "amount":1000,"commission":10,"total":1010,"currency":"RUB","createdAt":"2026-11-03T10:00:00Z"}
                 """);
 
@@ -96,5 +102,67 @@ class PaymentEventMapperTest {
         assertThat(map("""
                 {"eventType":"PaymentFailed","paymentId":"33333333-3333-3333-3333-333333333333"}
                 """)).isEmpty();
+    }
+
+    @Test
+    void billCategoryComesFromProviderGroupAndRoundUpIsSeparate() {
+        List<NewOperation> ops = map("""
+                {"eventType":"PaymentSucceeded","paymentId":"66666666-6666-6666-6666-666666666666","type":"BILL",
+                 "userId":"00000000-0000-0000-0000-000000000001","sourceAccountId":"00000000-0000-0000-0000-00000000a002",
+                 "recipientName":"Yota","providerGroup":"MOBILE","amount":300,"commission":0,"total":310,
+                 "roundUpAmount":10,"roundUpFundName":"Фонд «Подари жизнь»","currency":"RUB",
+                 "createdAt":"2026-11-03T10:00:00Z","someNewField":"ignored"}
+                """);
+
+        assertThat(ops).hasSize(2);
+        assertThat(ops.get(0).category()).isEqualTo("MOBILE");
+        assertThat(ops.get(0).amount()).isEqualByComparingTo("300");
+        assertThat(ops.get(1).category()).isEqualTo("DONATIONS");
+        assertThat(ops.get(1).title()).isEqualTo("Фонд «Подари жизнь»");
+        assertThat(ops.get(1).details()).isEqualTo("Округление на пользу · Yota");
+        assertThat(ops.get(1).amount()).isEqualByComparingTo("10");
+    }
+
+    @Test
+    void unknownTypeOrGroupGoesToOther() {
+        String event = """
+                {"eventType":"PaymentSucceeded","paymentId":"77777777-7777-7777-7777-777777777777","type":"%s",
+                 "providerGroup":"%s","userId":"00000000-0000-0000-0000-000000000001",
+                 "sourceAccountId":"00000000-0000-0000-0000-00000000a002","amount":5,"commission":0,"total":5,
+                 "createdAt":"2026-11-03T10:00:00Z"}
+                """;
+
+        assertThat(map(event.formatted("CRYPTO", "")).get(0).category()).isEqualTo("OTHER");
+        assertThat(map(event.formatted("BILL", "MISC")).get(0).category()).isEqualTo("OTHER");
+        assertThat(map(event.formatted("BILL", "SHOPS")).get(0).category()).isEqualTo("MARKETPLACES");
+        assertThat(map(event.formatted("BILL", "MISC")).get(0).title()).isEqualTo("Перевод");
+    }
+
+    @Test
+    void longPurposeIsCutToColumnLength() {
+        String purpose = "Оплата по договору ".repeat(10);
+        List<NewOperation> ops = map("""
+                {"eventType":"PaymentSucceeded","paymentId":"88888888-8888-8888-8888-888888888888","type":"REQUISITES",
+                 "userId":"00000000-0000-0000-0000-000000000001","sourceAccountId":"00000000-0000-0000-0000-00000000a002",
+                 "recipientName":"ООО Ромашка","purpose":"%s","amount":1000,"commission":0,"total":1000,
+                 "createdAt":"2026-11-03T10:00:00Z"}
+                """.formatted(purpose));
+
+        assertThat(ops.get(0).details()).hasSize(DETAILS_MAX).endsWith("…");
+        assertThat(ops.get(0).category()).isEqualTo("REQUISITES");
+    }
+
+    @Test
+    void ownTransferWithoutTitlesUsesNeutralWords() {
+        List<NewOperation> ops = map("""
+                {"eventType":"PaymentSucceeded","paymentId":"99999999-9999-9999-9999-999999999999","type":"OWN_TRANSFER",
+                 "userId":"00000000-0000-0000-0000-000000000001","sourceAccountId":"00000000-0000-0000-0000-00000000a002",
+                 "recipientUserId":"00000000-0000-0000-0000-000000000001",
+                 "recipientAccountId":"00000000-0000-0000-0000-00000000a001","amount":10,"commission":0,"total":10,
+                 "createdAt":"2026-11-03T10:00:00Z"}
+                """);
+
+        assertThat(ops.get(0).title()).isEqualTo("На свой счёт");
+        assertThat(ops.get(1).title()).isEqualTo("С своего счёта");
     }
 }

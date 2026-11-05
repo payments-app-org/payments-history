@@ -3,6 +3,7 @@ package com.paymentsapp.history.operation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.paymentsapp.platform.error.DomainException;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,6 @@ class CursorTest {
 
     @Test
     void rejectsGarbage() {
-        assertThatThrownBy(() -> Cursor.decode("???")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> Cursor.decode("???")).isInstanceOf(DomainException.class).hasMessage("Некорректный курсор");
     }
 }

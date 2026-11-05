@@ -21,3 +21,15 @@ spring:
       group-id: history
       # Новая группа читает топик с начала — подтянем и платежи, прошедшие до запуска сервиса
       auto-offset-reset: earliest
+    listener:
+      # По потоку на партицию топика
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
+
+# Общая библиотека libs/platform
+platform:
+  time:
+    zone: Europe/Moscow
+
+messaging:
+  payment-events:
+    topic: payment.events

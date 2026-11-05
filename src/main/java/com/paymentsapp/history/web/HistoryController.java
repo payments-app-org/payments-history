@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
-import java.time.ZoneId;
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -31,14 +31,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/history")
 public class HistoryController {
 
-    private static final ZoneId ZONE = ZoneId.of("Europe/Moscow");
     private static final int MAX_LIMIT = 100;
     private static final String OWN_TRANSFER = "OWN_TRANSFER";
 
     private final OperationRepository operations;
+    // Дни и месяцы — по часовому поясу бизнеса (platform.time.zone)
+    private final Clock clock;
 
-    public HistoryController(OperationRepository operations) {
+    public HistoryController(OperationRepository operations, Clock clock) {
         this.operations = operations;
+        this.clock = clock;
     }
 
     // Лента истории с фильтрами и пагинацией по курсору: следующая страница — ?cursor=<nextCursor>
@@ -77,7 +79,7 @@ public class HistoryController {
             @RequestParam(required = false) UUID accountId,
             @RequestParam(required = false) List<String> currency,
             @RequestParam(required = false) String title) {
-        YearMonth m = month != null ? month : YearMonth.now(ZONE);
+        YearMonth m = month != null ? month : YearMonth.now(clock);
         OperationFilter filter = new OperationFilter(userId, accountId, startOf(m.atDay(1)),
                 startOf(m.plusMonths(1).atDay(1)), direction, category == null ? null : List.of(category), null,
                 currency, null, title);
@@ -108,8 +110,8 @@ public class HistoryController {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
     }
 
-    private static OffsetDateTime startOf(LocalDate day) {
-        return day == null ? null : day.atStartOfDay(ZONE).toOffsetDateTime();
+    private OffsetDateTime startOf(LocalDate day) {
+        return day == null ? null : day.atStartOfDay(clock.getZone()).toOffsetDateTime();
     }
 
     public record OperationsPage(List<Operation> items, String nextCursor) {

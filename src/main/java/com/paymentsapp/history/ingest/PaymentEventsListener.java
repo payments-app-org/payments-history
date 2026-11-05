@@ -23,7 +23,7 @@ public class PaymentEventsListener {
         this.json = json;
     }
 
-    @KafkaListener(topics = "payment.events")
+    @KafkaListener(topics = "${messaging.payment-events.topic}")
     @Transactional
     public void onPaymentEvent(String message) {
         for (NewOperation op : PaymentEventMapper.toOperations(json.readTree(message))) {

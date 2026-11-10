@@ -24,6 +24,8 @@ spring:
     listener:
       # По потоку на партицию топика
       concurrency: ${KAFKA_LISTENER_CONCURRENCY:3}
+      # Обработка сообщения — продолжение трассы отправителя (заголовок traceparent)
+      observation-enabled: true
 
 # Общая библиотека libs/platform
 platform:
@@ -59,7 +61,9 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus — метрики для Prometheus (/actuator/prometheus); куда отправлять трассы и формат логов
+        # задаёт окружение (в Kubernetes — payments-deploy/envs/<окружение>/env.yaml)
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
